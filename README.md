@@ -1,225 +1,188 @@
-# ⚡ Backend API Template - FastAPI
+### 1. Architecture Globale
 
-> **A FastAPI template designed for modern web applications.**
-> Featuring BetterAuth session verification, asynchronous PostgreSQL (SQLAlchemy + AsyncPG), and a clean, layered architecture.
-
-![Python 3.11+](https://img.shields.io/badge/python-3.11%2B-blue.svg)
-![FastAPI](https://img.shields.io/badge/FastAPI-0.109%2B-009688.svg)
-![PostgreSQL](https://img.shields.io/badge/PostgreSQL-16-336791.svg)
-![Docker](https://img.shields.io/badge/Docker-Enabled-2496ED.svg)
-![License](https://img.shields.io/badge/license-MIT-green.svg)
-
----
-
-## 📖 Table of Contents
-
-- [Features](#-features)
-- [Architecture](#-architecture)
-- [Tech Stack](#-tech-stack)
-- [Getting Started](#-getting-started)
-- [Authentication Strategy](#-authentication-strategy)
-- [Development Workflow](#-development-workflow)
-- [Deployment](#-deployment)
-- [Project Structure](#-project-structure)
-
----
-
-## ✨ Features
-
-- **High Performance**: Built on **FastAPI** and **Uvicorn**, utilizing Python's `asyncio` for non-blocking I/O.
-- **Secure Authentication**: Integrated with **BetterAuth** (Next.js) via strict **HMAC session verification** and verified database lookups.
-- **Robust Database**: Fully asynchronous **PostgreSQL** access using **SQLAlchemy 2.0** and **AsyncPG** + Supabase.
-- **Clean Architecture**: Separation of concerns with **Endpoints**, **Services**, and **Repositories** layers.
-- **Type Safety**: strict typing with **Pydantic V2** and **Mypy**.
-- **Container Ready**: Optimized **Docker** configurations for both development (hot-reload) and production.
-- **🛠️ Developer Experience**:
-  - **UV** for lightning-fast package management.
-  - **Makefile** for common tasks.
-  - **Pre-commit hooks** (Ruff, Black, Mypy) for code quality.
-  - **SlowAPI** for rate limiting.
-
----
-
-## 🏗 Architecture
-
-This project follows a **Layered Architecture** to ensure maintainability and testability.
 
 ```mermaid
 graph TD
-    Client[Client - Next.js] -->|HTTP Request| API[API Endpoint - FastAPI]
-    API -->|Validation| Schema[Pydantic Schema]
-    API -->|Auth Check| Auth[Security Layer]
-    Auth -->|HMAC + DB| DB[(PostgreSQL)]
-    API -->|Business Logic| Service[Service Layer]
-    Service -->|Data Access| Repo[Repository Layer]
-    Repo -->|SQL Query| DB
-```
+    %% Clients
+    User((Utilisateur)) -->|App Mobile / Web| Gateway[Main Backend API<br/>FastAPI Orchestrator]
 
-1.  **Endpoints (`app/api`):** Handle HTTP requests, parsing, and response formatting.
-2.  **Services (`app/services`):** Contain business logic. They verify rules and orchestrate data operations.
-3.  **Repositories (`app/repositories`):** Abstract the database interaction. Services ask repositories for data, not the database directly.
-4.  **Security (`app/core/security.py`):** Handles session verification logic (HMAC signing & DB checks).
+    %% Main Backend
+    subgraph "FitBuddy Cloud (Ta Responsabilité)"
+        Gateway
+        Auth[Better Auth]
+        LLM_Engine[Coach Engine & LLM]
+        DB[(PostgreSQL<br/>Main DB)]
+        
+        Gateway --> Auth
+        Gateway --> LLM_Engine
+        Gateway --> DB
+    end
 
----
+    %% External Services
+    subgraph "Services Externes"
+        Gemini[Google Gemini API<br/>Intelligence Texte]
+        
+        subgraph "IoT & Data"
+            PredictionAPI[Prediction API<br/>Service Disponibilité]
+            SensorAPI[Sensor API<br/>Service Métriques]
+            Machines[Parc Machines<br/>IoT MQTT]
+        end
+    end
 
-## 🛠 Tech Stack
+    %% Flux
+    LLM_Engine -->|Prompting| Gemini
+    Gateway -->|Check Dispo| PredictionAPI
+    Gateway -->|Get Performance| SensorAPI
+    Machines -->|Raw Data| SensorAPI
 
-- **Framework:** [FastAPI](https://fastapi.tiangolo.com/)
-- **Language:** Python 3.11+
-- **Database:** PostgreSQL (primary), Supabase (optional services)
-- **ORM:** [SQLAlchemy](https://www.sqlalchemy.org/) (Async)
-- **Driver:** `asyncpg`
-- **Dependency Management:** [uv](https://github.com/astral-sh/uv)
-- **Linting/Formatting:** Ruff, Black, Mypy, Pre-commit
-- **Testing:** Pytest
+    classDef main fill:#f9f,stroke:#333,stroke-width:2px;
+    classDef ext fill:#ccf,stroke:#333,stroke-width:1px;
+    class Gateway,DB,LLM_Engine main;
+    class Gemini,PredictionAPI,SensorAPI,Machines ext;
 
----
-
-## 🚀 Getting Started
-
-### Prerequisites
-
-- **Python 3.11+**
-- **UV** (Recommended) or user standard `pip`
-- **PostgreSQL** database (e.g. Docker, Supabase, Neon)
-
-### 1. Clone & Setup
-
-```bash
-git clone <your-repo-url>
-cd oh-my-match-backend
-
-# Run the setup script (installs uv, venv, dependencies)
-chmod +x setup.sh
-./setup.sh
-```
-
-### 2. Configure Environment
-
-Copy the example configuration:
-
-```bash
-cp .env.example .env
-```
-
-**Crucial Variables to Update:**
-
-```ini
-# .env
-
-# Your Database Connection (Note: Use postgresql+asyncpg:// scheme)
-DATABASE_URL="postgresql+asyncpg://user:password@localhost:5432/dbname"
-
-# BetterAuth Configuration (Must match your Next.js frontend)
-BETTER_AUTH_SECRET="your_shared_secret_key"
-BETTER_AUTH_URL="http://localhost:3000"
-```
-
-### 3. Run Development Server
-
-```bash
-# Using Makefile
-make dev
-
-# OR directly with uvicorn
-source .venv/bin/activate
-uvicorn app.main:app --reload
-```
-
-API will be available at: [http://localhost:8000](http://localhost:8000)
-
----
-
-## 🔐 Authentication Strategy
-
-This API is designed to work as a backend for a **BetterAuth** (Next.js) frontend. It does **not** issue cookies/tokens itself but **verifies** the session tokens sent by the client.
-
-### How Verification Works
-
-1.  **Client Request:** The frontend sends a request with `Authorization: Bearer <session_token>`.
-2.  **HMAC Check:** The backend crypto-graphically verifies the token signature using `HMAC-SHA256` and the `BETTER_AUTH_SECRET`.
-3.  **Database Lookup:**
-    - The backend extracts the session ID from the token.
-    - It queries the `session` table in PostgreSQL.
-    - It verifies the session exists and has not expired (`expiresAt > NOW()`).
-4.  **User Context:** If valid, the backend fetches the `user` details and injects them into `request.state.user`.
-
-**Security Note:** This approach is stateful but highly secure, allowing instant session revocation.
-
----
-
-## 💻 Development Workflow
-
-The project uses a `Makefile` to simplify common commands:
-
-| Command          | Description                                 |
-| :--------------- | :------------------------------------------ |
-| `make install`   | Install dependencies and pre-commit hooks   |
-| `make dev`       | Start development server with hot-reload    |
-| `make test`      | Run tests with Pytest                       |
-| `make lint`      | Run Ruff and Mypy checks                    |
-| `make format`    | Auto-format code with Black and Ruff        |
-| `make docker-up` | Start Postgres (and app) via Docker Compose |
-
-### Pre-commit Hooks
-
-We use pre-commit to ensure code quality before every commit. It runs:
-
-- **Ruff**: Linter & Import sorter
-- **Black**: Code formatter
-- **Mypy**: Static type checker
-
-To run manually:
-
-```bash
-pre-commit run --all-files
 ```
 
 ---
 
-## 📦 Deployment
+### 2. Modèle de Données (ERD)
 
-The application is containerized using Docker, ready for deployment on any cloud provider (AWS, GCP, DigitalOcean, Railway).
+Ce schéma détaille la structure de la base de données PostgreSQL, mettant en évidence le lien "mou" (Logical Mapping) entre les exercices et le hardware.
 
-### Production Docker Build
+```mermaid
+erDiagram
+    USERS ||--|| USER_PROFILES : "a un"
+    USERS ||--o{ USER_PROGRAMS : "suit"
+    USER_PROGRAMS ||--|{ PROGRAM_SESSIONS : "contient"
+    
+    PROGRAM_SESSIONS ||--o{ SESSIONS_HISTORY : "génère"
+    SESSIONS_HISTORY ||--|{ SETS_HISTORY : "contient"
+    
+    %% Référentiel
+    EXERCISE_LIBRARY ||--o{ MACHINE_INVENTORY : "lié par machine_type"
+    EXERCISE_LIBRARY ||--o{ SETS_HISTORY : "définit"
+    
+    %% Tables Détails
+    USERS {
+        UUID id PK
+        String email
+        Timestamp created_at
+    }
 
-```bash
-# Build and run in production mode
-docker-compose -f docker-compose.prod.yml up -d --build
+    USER_PROFILES {
+        UUID user_id FK
+        JSON onboarding_data "Niveau, Blessures"
+        JSON current_stats "Poids, %Gras"
+    }
+
+    PROGRAM_TEMPLATES {
+        UUID id PK
+        String goal_type
+        JSON structure_json
+    }
+
+    EXERCISE_LIBRARY {
+        UUID id PK
+        String name
+        String machine_type "ex: DC_BENCH"
+        Array alternatives "IDs exercices remplaçants"
+    }
+
+    MACHINE_INVENTORY {
+        String machine_id PK "ID Technique (001)"
+        String type "ex: DC_BENCH"
+        UUID sensor_id "ID Technique Sensor"
+        String label
+    }
+
+    SETS_HISTORY {
+        UUID id PK
+        Timestamp start_time
+        Timestamp end_time
+        Float weight_kg
+        Int reps_count
+        Int rpe
+        JSON sensor_data_snapshot "Vitesse, Asymétrie..."
+        String machine_used_id
+    }
+
 ```
 
-**Key Production Settings:**
+---
 
-- Ensure `DEBUG=False` in `.env`.
-- Set `ENVIRONMENT=production`.
-- Use a managed PostgreSQL instance for data persistence.
+### 3. Séquence : Smart Routing (Avant l'effort)
+
+Le flux où le backend vérifie la disponibilité d'un *groupe* de machines avant de servir l'exercice.
+
+```mermaid
+sequenceDiagram
+    participant User as 📱 Frontend
+    participant Back as 🧠 Main Backend
+    participant DB as 🗄️ Main DB
+    participant Pred as 🔮 Prediction API
+
+    User->>Back: GET /session/next-exercise
+    
+    Back->>DB: Récupère prochain exo (ex: Dev. Couché)
+    DB-->>Back: Type requis: "DC_BENCH"
+    
+    Back->>DB: Liste machines pour "DC_BENCH"
+    DB-->>Back: [DC_001, DC_002]
+    
+    rect rgb(240, 248, 255)
+        note right of Back: Boucle de vérification
+        par Check Machines
+            Back->>Pred: GET /machine/DC_001/prediction
+            Back->>Pred: GET /machine/DC_002/prediction
+        end
+        Pred-->>Back: DC_001: Occupé (10min)
+        Pred-->>Back: DC_002: Libre
+    end
+
+    alt Au moins une machine libre
+        Back-->>User: Renvoie "Développé Couché" (DC_002)
+    else Toutes occupées
+        Back->>DB: Cherche alternative (ex: Haltères)
+        Back-->>User: Renvoie "Dev. Couché Haltères" (Swap)
+        note right of User: Notification: "Banc pris,<br/>on passe aux haltères !"
+    end
+
+```
 
 ---
 
-## 📄 API Documentation
+### 4. Séquence : Precision Tracking (Pendant l'effort)
 
-FastAPI automatically generates interactive documentation:
+Le flux "Chrono Maître" qui permet de synchroniser l'action humaine avec les données capteurs.
 
-- **Swagger UI:** [http://localhost:8000/docs](http://localhost:8000/docs)
-- **ReDoc:** [http://localhost:8000/redoc](http://localhost:8000/redoc)
+```mermaid
+sequenceDiagram
+    participant User as 📱 Frontend
+    participant Back as 🧠 Main Backend
+    participant Sensor as 📡 Sensor API
+    participant DB as 🗄️ Main DB
 
----
+    Note over User: L'utilisateur est prêt
+    User->>Back: POST /session/start (Exercise X)
+    Back->>DB: Stocke T_START
+    Back-->>User: OK (Ack)
 
-## 📁 Project Structure
+    Note over User: ... L'effort (Pousse la fonte) ...
 
-```bash
-app/
-├── api/             # API Routers & Endpoints
-│   ├── dependencies.py  # Auth dependencies (get_current_user)
-│   └── v1/
-├── core/            # Core config & utilities
-│   ├── config.py       # Pydantic Settings
-│   ├── db.py           # Database connection (SQLAlchemy)
-│   ├── security.py     # Auth verification logic
-│   └── logging.py      # Loguru setup
-├── middleware/      # Custom middlewares (Rate Limit, CORS)
-├── repositories/    # Database interactions
-├── schemas/         # Pydantic models (Input/Output)
-├── services/        # Business logic
-└── main.py          # App entrypoint
+    User->>Back: POST /session/stop
+    Note right of User: Payload: T_END +<br/>Poids: 80kg + Reps: 10
+    
+    Back->>DB: Récupère T_START & Type Machine
+
+    rect rgb(255, 250, 240)
+        note right of Back: Sync & Best Match
+        Back->>Sensor: GET /reps?from=T_START&to=T_END
+        Sensor-->>Back: Retourne Activité sur Sensor B
+        Back->>Back: Filtre: Sensor B correspond<br/>aux timestamps
+    end
+
+    Back->>DB: INSERT into SetsHistory
+    note right of DB: "Golden Record":<br/>Data User (80kg) +<br/>Data Sensor (Vitesse 0.5m/s)
+
+    Back-->>User: Résumé Série + XP Gagnée
+
 ```
