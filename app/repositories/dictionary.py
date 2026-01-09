@@ -1,4 +1,5 @@
 from typing import List, Optional
+from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.domain import Machine, Exercise
@@ -11,6 +12,14 @@ class DictionaryRepository:
         query = select(Machine).order_by(Machine.name)
         result = await self.session.execute(query)
         return result.scalars().all()
+
+    async def get_exercise_by_id(self, exercise_id: UUID) -> Optional[Exercise]:
+        """
+        Find an exercise by its UUID.
+        """
+        query = select(Exercise).where(Exercise.id == exercise_id)
+        result = await self.session.execute(query)
+        return result.scalars().first()
 
     async def get_exercises(
         self, 

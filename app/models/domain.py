@@ -109,6 +109,9 @@ class SetHistory(Base):
     session_history_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("sessions_history.id"), nullable=False)
     exercise_id: Mapped[uuid.UUID] = mapped_column(ForeignKey("exercises.id"), nullable=False)
     
+    # The actual machine used (e.g. specific ID from QR Code)
+    machine_id: Mapped[Optional[str]] = mapped_column(String, nullable=True)
+    
     start_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     end_time: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     
