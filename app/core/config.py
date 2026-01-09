@@ -47,6 +47,19 @@ class Settings(BaseSettings):
     DATABASE_URL: str = ""
     MIGRATION_URL: str = ""  # Specific URL for Alembic (e.g. Direct Connection / Transaction Mode)
 
+    @field_validator("DATABASE_URL", mode="before")
+    @classmethod
+    def fallback_database_url(cls, v: Any, info: Any) -> Any:
+        # If DATABASE_URL is not set, we can't easily access MIGRATION_URL in field_validator mode='before'
+        # if the fields are not yet validated.
+        # So we'll accept empty string here and handle it in a model validator.
+        return v
+    
+    def model_post_init(self, __context: Any) -> None:
+        if (not self.DATABASE_URL or self.DATABASE_URL == "test") and self.MIGRATION_URL:
+            self.DATABASE_URL = self.MIGRATION_URL
+        super().model_post_init(__context)
+
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
     RATE_LIMIT_PER_MINUTE: int = 60

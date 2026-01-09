@@ -29,7 +29,6 @@ class Machine(Base):
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name: Mapped[str] = mapped_column(String, nullable=False)
     machine_type_id: Mapped[str] = mapped_column(String, nullable=False, index=True) # e.g., "DC_BENCH"
-    sensor_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True) # ID of the associated sensor
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     
     # Gym location/zone ?
