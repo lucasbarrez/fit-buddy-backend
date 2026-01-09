@@ -24,6 +24,8 @@ class Settings(BaseSettings):
 
     # AI
     GEMINI_API_KEY: str = ""
+    FIT_BUDDY_DATA_URL: str = "http://localhost:8001"
+
 
     BACKEND_CORS_ORIGINS: Any = ["http://localhost:3000", "http://localhost:8000"]
 

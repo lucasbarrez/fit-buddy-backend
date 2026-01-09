@@ -1,45 +1,54 @@
-import random
-from typing import Optional
+from typing import List, Optional
+import httpx
+from app.core.config import settings
 
 class IoTService:
-    """
-    Mock Service to simulate IoT sensor data from gym machines.
-    In a real scenario, this would call an external API (e.g., SensorAPI).
-    """
-    
     def __init__(self):
-        # Configuration for simulation
-        # chance of being busy: 0.0 to 1.0
-        self.busy_probability = 0.3 
-    
+        self.base_url = settings.FIT_BUDDY_DATA_URL
+        # In a real app, we might want to cache the machine list
+        
     async def get_estimated_wait_time(self, machine_type_id: str) -> int:
         """
-        Get estimated wait time in MINUTES for a given machine type.
-        Returns 0 if available immediately.
+        Connects to fit-buddy-data API to get real predictions.
+        Logic: 
+        1. List all machines.
+        2. Filter those matching 'machine_type_id' (Naive contains match).
+        3. Get prediction for each.
+        4. Return the BEST availability (min wait time).
         """
-        if not machine_type_id:
-            return 0
-            
-        # Simulate logic:
-        # Some machines are more popular
-        popular_machines = ["DC_BENCH", "SQUAT_RACK", "CABLE_STATION"]
-        
-        is_popular = any(p in machine_type_id.upper() for p in popular_machines)
-        
-        # Base probability check
-        threshold = self.busy_probability + (0.4 if is_popular else 0.0)
-        
-        if random.random() < threshold:
-            # It's busy. Return random wait between 2 and 15 minutes
-            return random.randint(2, 15)
-        
-        return 0
+        try:
+            async with httpx.AsyncClient() as client:
+                # 1. Get All Machines
+                resp = await client.get(f"{self.base_url}/api/machine/list", timeout=5.0)
+                if resp.status_code != 200:
+                    print(f"⚠️ IoT API Error (List): {resp.status_code}")
+                    return 0 # Fallback 
+                
+                all_machines = resp.json().get("machines", [])
+                
+                # 2. Naive Filter
+                # We assume machine_type_id (e.g. "DC_BENCH") is widely used in the ID (e.g. "DC_BENCH_001")
+                candidates = [m for m in all_machines if machine_type_id in m]
+                
+                if not candidates:
+                    return 0 
 
-    async def get_all_machines_status(self) -> dict[str, int]:
-        """
-        Returns a snapshot of all tracked machines and their wait times.
-        Useful for a dashboard.
-        """
-        # Mocking a set of machines
-        machines = ["DC_BENCH", "SQUAT_RACK", "LEG_PRESS", "DUMBBELLS"]
-        return {m: await self.get_estimated_wait_time(m) for m in machines}
+                # 3. Check Prediction for each
+                wait_times = []
+                for mid in candidates:
+                    p_resp = await client.get(f"{self.base_url}/api/machine/{mid}/prediction", timeout=3.0)
+                    if p_resp.status_code == 200:
+                        data = p_resp.json().get("data", {})
+                        if data.get("available"):
+                            return 0 # Found one free!
+                        else:
+                            wait_times.append(data.get("time_to_wait", 0))
+                
+                if not wait_times:
+                     return 0
+                     
+                return min(wait_times)
+                
+        except Exception as e:
+            print(f"⚠️ IoT Service Connection Error: {e}")
+            return 0 # Fail open
