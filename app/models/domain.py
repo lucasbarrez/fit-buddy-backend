@@ -121,3 +121,28 @@ class SetHistory(Base):
     sensor_snapshot: Mapped[Optional[dict]] = mapped_column(JSONB, nullable=True)
     
     session_history: Mapped["SessionHistory"] = relationship("SessionHistory", back_populates="sets")
+
+
+from pgvector.sqlalchemy import Vector
+
+class KnowledgeItem(Base):
+    __tablename__ = "knowledge_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    
+    # Discriminator: 'exercise' or 'doc_chunk'
+    source_type: Mapped[str] = mapped_column(String, nullable=False, index=True) 
+    
+    # ID of the source entity if applicable (e.g. Exercise ID)
+    source_id: Mapped[Optional[uuid.UUID]] = mapped_column(UUID(as_uuid=True), nullable=True)
+    
+    # The actual text content to be retrieved
+    content_text: Mapped[str] = mapped_column(String, nullable=False)
+    
+    # The Embedding Vector (Dimension 768 for Gemini 1.5 Flash / Text-Embedding-004)
+    embedding: Mapped[List[float]] = mapped_column(Vector(768))
+    
+    # Extra metadata (e.g., {"muscle": "legs", "doc_title": "Hypertrophy Guide"})
+    metadata_info: Mapped[dict] = mapped_column(JSONB, nullable=False, default={})
+    
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=lambda: datetime.now(timezone.utc))

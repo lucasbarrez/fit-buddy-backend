@@ -22,6 +22,9 @@ class Settings(BaseSettings):
     BETTER_AUTH_URL: str = ""  # URL of your Next.js Better Auth API (e.g., http://localhost:3000)
     BETTER_AUTH_SECRET: str = ""  # Better Auth secret for server-side verification
 
+    # AI
+    GEMINI_API_KEY: str = ""
+
     BACKEND_CORS_ORIGINS: Any = ["http://localhost:3000", "http://localhost:8000"]
 
     @field_validator("BACKEND_CORS_ORIGINS", mode="before")

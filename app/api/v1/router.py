@@ -4,7 +4,7 @@ API v1 router
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, health, hello_world, profile, dictionary
+from app.api.v1.endpoints import auth, health, hello_world, profile, dictionary, program
 
 api_router = APIRouter()
 
@@ -14,3 +14,4 @@ api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
 api_router.include_router(hello_world.router, prefix="/hello", tags=["hello-world"])
 api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
 api_router.include_router(dictionary.router, prefix="/dictionary", tags=["dictionary"])
+api_router.include_router(program.router, prefix="/programs", tags=["programs"])
