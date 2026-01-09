@@ -45,6 +45,7 @@ class Settings(BaseSettings):
 
     # Database (PostgreSQL)
     DATABASE_URL: str = ""
+    MIGRATION_URL: str = ""  # Specific URL for Alembic (e.g. Direct Connection / Transaction Mode)
 
     # Rate Limiting
     RATE_LIMIT_ENABLED: bool = True
