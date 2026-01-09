@@ -4,14 +4,22 @@ API v1 router
 
 from fastapi import APIRouter
 
-from app.api.v1.endpoints import auth, health, hello_world, profile, dictionary, program
+from app.api.v1.endpoints import (
+    hello_world,
+    health,
+    auth,
+    profile,
+    dictionary,
+    program,
+    session
+)
 
 api_router = APIRouter()
 
-# Include endpoint routers
-api_router.include_router(health.router, tags=["health"])
-api_router.include_router(auth.router, prefix="/auth", tags=["auth"])
-api_router.include_router(hello_world.router, prefix="/hello", tags=["hello-world"])
-api_router.include_router(profile.router, prefix="/profile", tags=["profile"])
-api_router.include_router(dictionary.router, prefix="/dictionary", tags=["dictionary"])
-api_router.include_router(program.router, prefix="/programs", tags=["programs"])
+api_router.include_router(hello_world.router, prefix="/hello", tags=["Hello World"])
+api_router.include_router(health.router, prefix="/health", tags=["Health"])
+api_router.include_router(auth.router, prefix="/auth", tags=["Authentication"])
+api_router.include_router(profile.router, prefix="/profile", tags=["Profile"])
+api_router.include_router(dictionary.router, prefix="/dictionary", tags=["Dictionary"])
+api_router.include_router(program.router, prefix="/program", tags=["Program"])
+api_router.include_router(session.router, prefix="/session", tags=["Session Tracking"])
