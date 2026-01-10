@@ -1,36 +1,28 @@
-# Production Dockerfile
-FROM python:3.11-slim
+FROM python:3.11-slim-bookworm
+COPY --from=ghcr.io/astral-sh/uv:latest /uv /uvx /bin/
 
-# Set environment variables
-ENV PYTHONUNBUFFERED=1 \
-    PYTHONDONTWRITEBYTECODE=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+ENV PYTHONUNBUFFERED=1
 
-# Install UV
-RUN pip install uv
-
-# Set working directory
 WORKDIR /app
 
-# Copy dependency files
-COPY pyproject.toml ./
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    gcc \
+    libcairo2-dev \
+    pkg-config \
+    python3-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
 
-# Install dependencies
-RUN uv pip install --system -r pyproject.toml
+RUN --mount=type=cache,target=/root/.cache/uv \
+    --mount=type=bind,source=uv.lock,target=uv.lock \
+    --mount=type=bind,source=pyproject.toml,target=pyproject.toml \
+    uv sync --locked --no-install-project
 
-# Copy application code
-COPY ./app ./app
+ADD . /app
 
-# Create logs directory
-RUN mkdir -p logs
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --locked --no-editable --compile-bytecode
 
-# Expose port
 EXPOSE 8000
 
-# Health check
-HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD python -c "import requests; requests.get('http://localhost:8000/api/v1/health')"
-
-# Run the application
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["uv", "run", "app/main.py"]
