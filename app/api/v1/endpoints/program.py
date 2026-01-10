@@ -18,6 +18,20 @@ from app.services.program_generator import ProgramGenerator
 router = APIRouter()
 
 
+
+async def get_program_service(session: AsyncSession = Depends(get_db)) -> ProgramService:
+    prog_repo = ProgramRepository(session)
+    prof_repo = ProfileRepository(session)
+    dict_repo = DictionaryRepository(session)
+    
+    # RAG Dependencies
+    knowledge_service = KnowledgeService()
+    retriever = KnowledgeRetriever(session)
+    generator = ProgramGenerator(knowledge_service, retriever)
+    
+    return ProgramService(prog_repo, prof_repo, dict_repo, generator)
+
+
 @router.post("/generate", response_model=SuccessResponse[ProgramGenerateResponse])
 async def generate_program(
     method: str = "template",
@@ -38,18 +52,6 @@ async def generate_program(
         ),
         message="Program generated"
     )
-
-async def get_program_service(session: AsyncSession = Depends(get_db)) -> ProgramService:
-    prog_repo = ProgramRepository(session)
-    prof_repo = ProfileRepository(session)
-    dict_repo = DictionaryRepository(session)
-    
-    # RAG Dependencies
-    knowledge_service = KnowledgeService()
-    retriever = KnowledgeRetriever(session)
-    generator = ProgramGenerator(knowledge_service, retriever)
-    
-    return ProgramService(prog_repo, prof_repo, dict_repo, generator)
 
 
 @router.get("/current", response_model=SuccessResponse[ProgramRead])
