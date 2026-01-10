@@ -61,6 +61,7 @@ class SetHistoryItem(BaseModel):
     reps_count: int
     rpe: Optional[int]
     timestamp: datetime = Field(alias="end_time")
+    sensor_snapshot: Optional[Dict[str, Any]] = None
 
     class Config:
         from_attributes = True
