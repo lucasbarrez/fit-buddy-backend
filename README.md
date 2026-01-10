@@ -148,6 +148,67 @@ erDiagram
     Machine ||--o{ SetHistory : "performed on (optional)"
 ```
 
+## 5. Key System Workflows
+
+### 5.1 Session Tracking
+Detailed flow of how the backend syncs with the IoT Sensor Service when a user logs a set in the gym.
+
+1.  **User Input**: The user finishes a set and sends `reps`, `weight`, and the machine's `QR Code ID`.
+2.  **Time Window**: The backend calculates the exact start/end time of the set.
+3.  **Sensor Sync**: It calls the `fit-buddy-data` API to fetch the "Golden Record" (Power, Speed) for that specific machine and time window.
+4.  **Merge & Save**: The sensor data is merged with the user log and saved in `SetHistory`.
+
+```mermaid
+sequenceDiagram
+    participant User
+    participant Backend
+    participant SensorAPI as Fit-Buddy-Data (IoT)
+    participant DB as Supabase
+
+    User->>Backend: POST /session/set \n{machine_id, start_time, end_time, reps}
+    
+    rect rgb(200, 255, 200)
+    Note over Backend, SensorAPI: IoT Synchronization
+    Backend->>SensorAPI: GET /api/sensor/metrics \n(machine_id, time_window)
+    SensorAPI-->>Backend: 200 OK \n{avg_power, speed_concentric, ...}
+    end
+    
+    Backend->>DB: Insert SetHistory \n+ sensor_snapshot
+    DB-->>Backend: Confirm ID
+    Backend-->>User: 200 OK "Set Logged + Synced"
+```
+
+### 5.2 Smart Adaptation Service (Availability Check)
+*(Located in `app/services/adaptation.py`)*
+
+When a user checks if a machine is free, the backend runs a **Hybrid Search (RAG + IoT + LLM)** to find valid alternatives.
+
+1.  **Broad Search**: Finds candidates via DB (hardcoded) and RAG (semantic similarity).
+2.  **IoT Filtering**: Checks `fit-buddy-data` for real-time availability.
+3.  **LLM Selection**: Gemini picks the best available option for the user's goal.
+
+```mermaid
+sequenceDiagram
+    participant App
+    participant AdaptationService
+    participant IoT as Fit-Buddy-Data (IoT)
+
+    App->>AdaptationService: Check Availability (ExerciseID)
+    AdaptationService->>AdaptationService: Resolve Machine Type \n(e.g. "DC_BENCH")
+    
+    AdaptationService->>IoT: GET /api/prediction/availability
+    IoT-->>AdaptationService: { "is_available": false, "wait_time": 5 }
+    
+    alt Machine Busy
+        AdaptationService->>AdaptationService: 1. Find Candidates (DB + RAG)
+        AdaptationService->>AdaptationService: 2. Filter Candidates (IoT Wait Time)
+        AdaptationService->>AdaptationService: 3. Select Best Match (LLM)
+        AdaptationService-->>App: { status: "busy", alternative: "Dumbbell Press", reason: "Better for Hypertrophy" }
+    else Machine Free
+        AdaptationService-->>App: { status: "available" }
+    end
+```
+
 ### Core Entities
 *   **`UserProfile`**: Stores onboarding data (JSONB) and physical stats.
 *   **`Program`**: A planned routine (Name, Goal, Dates). Contains multiple `Sessions`.
@@ -167,7 +228,7 @@ erDiagram
 
 ---
 
-## 5. Installation & Local Development
+## 6. Installation & Local Development
 
 This project uses `uv` for ultra-fast python package management.
 
