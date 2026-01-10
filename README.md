@@ -1,188 +1,198 @@
-### 1. Architecture Globale
+# Fits Buddy Backend
 
+The core application server for the Fits Buddy ecosystem.
+This service handles User Profiles, Workout Generation (AI/RAG), Session Tracking, and integration with physical gym sensors.
+
+## 1. Global Architecture
+
+The backend operates as the central brain, while authentication is delegated to the Frontend (Better Auth).
 
 ```mermaid
 graph TD
-    %% Clients
-    User((Utilisateur)) -->|App Mobile / Web| Gateway[Main Backend API<br/>FastAPI Orchestrator]
-
-    %% Main Backend
-    subgraph "FitBuddy Cloud (Ta Responsabilité)"
-        Gateway
-        Auth[Better Auth]
-        LLM_Engine[Coach Engine & LLM]
-        DB[(PostgreSQL<br/>Main DB)]
-        
-        Gateway --> Auth
-        Gateway --> LLM_Engine
-        Gateway --> DB
+    Client[Mobile/Web App] -->|Auth Token| Backend[Fits Buddy Backend]
+    Client -->|Login| BetterAuth[Better Auth Frontend]
+    
+    Backend -->|Verify Session| BetterAuthAPI[Better Auth API]
+    Backend -->|Data Store| Supabase[Supabase PostgreSQL Database]
+    Backend -->|Sensor Data| DataAPI[Fit Buddy Data API]
+    Backend -->|LLM| Gemini[Google Gemini API]
+    
+    subgraph Services
+        P_Gen[Program Generator]
+        RAG[Knowledge Retriever]
+        IoT[IoT / Sensor Service]
+        Adapt[Adaptation Service]
     end
-
-    %% External Services
-    subgraph "Services Externes"
-        Gemini[Google Gemini API<br/>Intelligence Texte]
-        
-        subgraph "IoT & Data"
-            PredictionAPI[Prediction API<br/>Service Disponibilité]
-            SensorAPI[Sensor API<br/>Service Métriques]
-            Machines[Parc Machines<br/>IoT MQTT]
-        end
-    end
-
-    %% Flux
-    LLM_Engine -->|Prompting| Gemini
-    Gateway -->|Check Dispo| PredictionAPI
-    Gateway -->|Get Performance| SensorAPI
-    Machines -->|Raw Data| SensorAPI
-
-    classDef main fill:#f9f,stroke:#333,stroke-width:2px;
-    classDef ext fill:#ccf,stroke:#333,stroke-width:1px;
-    class Gateway,DB,LLM_Engine main;
-    class Gemini,PredictionAPI,SensorAPI,Machines ext;
-
+    
+    Backend --> Services
 ```
+
+### External Services
+- **Better Auth (Frontend)**: Handles User Authentication and Session Management. The backend validates tokens by calling the Better Auth API.
+- **Supabase PostgreSQL**: Acts as the primary relational database (`pgvector` enabled for RAG). It does *not* handle Auth in this architecture.
+- **Fit Buddy Data API** (`:8001`): A microservice that mocks physical gym machines. It provides real-time availability predictions and detailed sensor metrics (speed, power) for logged sets.
+- **Gemini API**: The LLM engine used for generating workout narratives and structuring "Smart" programs.
 
 ---
 
-### 2. Modèle de Données (ERD)
+## 2. API Architecture & Routes
 
-Ce schéma détaille la structure de la base de données PostgreSQL, mettant en évidence le lien "mou" (Logical Mapping) entre les exercices et le hardware.
+The API is versioned (currently `v1`) and organized by domain.
+
+### Profile `(endpoints/profile.py)`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `GET` | `/api/v1/profile/me` | Fetch user profile & stats. Requires valid Better Auth Session. |
+
+### Workout Programs `(endpoints/program.py)`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/generate` | **Core Feature**. Generates a workout program. Accepts `method='template'` or `'smart'`. |
+| `GET` | `/current` | Retrieve the active program plan. |
+
+### Session Tracking `(endpoints/session.py)`
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| `POST` | `/session/start` | Initialize a session log. |
+| `GET` | `/session/check-availability/{id}`| call IoT Service to check if machine is free. |
+| `POST` | `/session/set` | **Log a Set**. Automatically calls **Sensor API** to sync speed/power data if a specific machine is used. |
+| `POST` | `/session/stop` | Finalize session, calculate XP and duration. |
+
+To see the full API documentation, visit `http://localhost:8000/docs` (when running locally of course).
+
+---
+
+## 3. Program Generation Logic
+
+We support two distinct strategies for creating workouts, controlled by the `method` parameter.
+
+### A. Template Mode (`method="template"`)
+*The "Classic" Approach.*
+1.  **Selection**: Based on user Goal/Level, a static template is selected (e.g., "Full Body Beginner").
+2.  **Enrichment**: An LLM call generates a motivational narrative and description for the program.
+3.  **Fast & Reliable**: Best for users who want standard, proven routines.
+
+### B. Smart RAG Mode (`method="smart"`)
+*The "AI Personalized" Approach using the **Architect & Librarian** pattern.*
+
+1.  **The Architect (LLM)**:
+    *   Analyzes User Profile (Injuries, Equipment, Goals).
+    *   Generates a "Skeleton" of the workout.
+    *   *Crucially*, it does not pick specific DB IDs. It invents **Semantic Search Queries** (e.g., "Compound Leg Exercise Quad Focus").
+2.  **The Librarian (RAG)**:
+    *   Takes the Semantic Queries from the Architect.
+    *   Performs a Vector Search (`pgvector`) against the `knowledge_items` database (embedded exercises).
+    *   Finds the **Real Database Entity** (Exercise ID) that best matches the description.
+3.  **Realization**:
+    *   The Skeleton is hydrated with real Exercise IDs.
+    *   The result is a fully executable program linked to our database.
+
+---
+
+## 4. Database Model
+
+The database is PostgreSQL (via Supabase) with `pgvector` extension.
 
 ```mermaid
 erDiagram
-    USERS ||--|| USER_PROFILES : "a un"
-    USERS ||--o{ USER_PROGRAMS : "suit"
-    USER_PROGRAMS ||--|{ PROGRAM_SESSIONS : "contient"
+    UserProfile {
+        uuid user_id PK
+        jsonb onboarding_data
+        jsonb current_stats
+    }
+    Program {
+        uuid id PK
+        uuid user_id
+        string status
+    }
+    Session {
+        uuid id PK
+        uuid program_id FK
+        jsonb exercises_plan
+    }
+    SessionHistory {
+        uuid id PK
+        uuid user_id
+        uuid session_id FK
+    }
+    SetHistory {
+        uuid id PK
+        uuid session_history_id FK
+        uuid exercise_id FK
+        string machine_id
+        jsonb sensor_snapshot
+    }
+    KnowledgeItem {
+        uuid id PK
+        string source_type
+        string content_text
+        vector embedding
+    }
+    Machine {
+        uuid id PK
+        string name
+        string machine_type_id
+        boolean is_active
+    }
+    Exercise {
+        uuid id PK
+        string name
+        string muscle_group
+    }
     
-    PROGRAM_SESSIONS ||--o{ SESSIONS_HISTORY : "génère"
-    SESSIONS_HISTORY ||--|{ SETS_HISTORY : "contient"
-    
-    %% Référentiel
-    EXERCISE_LIBRARY ||--o{ MACHINE_INVENTORY : "lié par machine_type"
-    EXERCISE_LIBRARY ||--o{ SETS_HISTORY : "définit"
-    
-    %% Tables Détails
-    USERS {
-        UUID id PK
-        String email
-        Timestamp created_at
-    }
-
-    USER_PROFILES {
-        UUID user_id FK
-        JSON onboarding_data "Niveau, Blessures"
-        JSON current_stats "Poids, %Gras"
-    }
-
-    PROGRAM_TEMPLATES {
-        UUID id PK
-        String goal_type
-        JSON structure_json
-    }
-
-    EXERCISE_LIBRARY {
-        UUID id PK
-        String name
-        String machine_type "ex: DC_BENCH"
-        Array alternatives "IDs exercices remplaçants"
-    }
-
-    MACHINE_INVENTORY {
-        String machine_id PK "ID Technique (001)"
-        String type "ex: DC_BENCH"
-        UUID sensor_id "ID Technique Sensor"
-        String label
-    }
-
-    SETS_HISTORY {
-        UUID id PK
-        Timestamp start_time
-        Timestamp end_time
-        Float weight_kg
-        Int reps_count
-        Int rpe
-        JSON sensor_data_snapshot "Vitesse, Asymétrie..."
-        String machine_used_id
-    }
-
+    Program ||--|{ Session : contains
+    Session ||--o{ SessionHistory : "logged as"
+    SessionHistory ||--|{ SetHistory : contains
+    Exercise ||--o{ SetHistory : used_in
+    Exercise ||--o{ KnowledgeItem : "embedded as"
+    Machine ||--o{ SetHistory : "performed on (optional)"
 ```
+
+### Core Entities
+*   **`UserProfile`**: Stores onboarding data (JSONB) and physical stats.
+*   **`Program`**: A planned routine (Name, Goal, Dates). Contains multiple `Sessions`.
+*   **`Session`**: A planned workout day. Contains a JSON `exercises_plan`.
+*   **`Exercise`**: The dictionary of available movements. linked to `Machine`.
+
+### History Logging
+*   **`SessionHistory`**: An actual instance of a user performing a session.
+*   **`SetHistory`**: The granular log of a set.
+    *   **`sensor_snapshot` (JSONB)**: The "Golden Record" from the IoT sensors (Speed, Reps) stored immutably.
+    *   **`machine_id`**: The specific hardware ID (QR Code) used.
+
+### RAG / Knowledge
+*   **`KnowledgeItem`**: Represents text chunks or exercises.
+    *   `embedding`: Vector(768) column for semantic search.
+    *   `source_type`: 'exercise' or 'doc_chunk'.
 
 ---
 
-### 3. Séquence : Smart Routing (Avant l'effort)
+## 5. Installation & Local Development
 
-Le flux où le backend vérifie la disponibilité d'un *groupe* de machines avant de servir l'exercice.
+This project uses `uv` for ultra-fast python package management.
 
-```mermaid
-sequenceDiagram
-    participant User as 📱 Frontend
-    participant Back as 🧠 Main Backend
-    participant DB as 🗄️ Main DB
-    participant Pred as 🔮 Prediction API
+### Prerequisites
+*   Python 3.11+
+*   `uv` installed (`pip install uv`)
+*   Supabase URL/Key in `.env`
+*   Gemini API Key in `.env`
+*   Better Auth URL/Secret in `.env`
 
-    User->>Back: GET /session/next-exercise
-    
-    Back->>DB: Récupère prochain exo (ex: Dev. Couché)
-    DB-->>Back: Type requis: "DC_BENCH"
-    
-    Back->>DB: Liste machines pour "DC_BENCH"
-    DB-->>Back: [DC_001, DC_002]
-    
-    rect rgb(240, 248, 255)
-        note right of Back: Boucle de vérification
-        par Check Machines
-            Back->>Pred: GET /machine/DC_001/prediction
-            Back->>Pred: GET /machine/DC_002/prediction
-        end
-        Pred-->>Back: DC_001: Occupé (10min)
-        Pred-->>Back: DC_002: Libre
-    end
+### Run Locally
 
-    alt Au moins une machine libre
-        Back-->>User: Renvoie "Développé Couché" (DC_002)
-    else Toutes occupées
-        Back->>DB: Cherche alternative (ex: Haltères)
-        Back-->>User: Renvoie "Dev. Couché Haltères" (Swap)
-        note right of User: Notification: "Banc pris,<br/>on passe aux haltères !"
-    end
+1.  **Install Dependencies**
+    ```bash
+    uv sync
+    ```
 
-```
+2.  **Start Development Server**
+    ```bash
+    uv run dev
+    ```
+    The API will be available at `http://localhost:8000`.
+    Swagger Docs: `http://localhost:8000/docs`
 
----
-
-### 4. Séquence : Precision Tracking (Pendant l'effort)
-
-Le flux "Chrono Maître" qui permet de synchroniser l'action humaine avec les données capteurs.
-
-```mermaid
-sequenceDiagram
-    participant User as 📱 Frontend
-    participant Back as 🧠 Main Backend
-    participant Sensor as 📡 Sensor API
-    participant DB as 🗄️ Main DB
-
-    Note over User: L'utilisateur est prêt
-    User->>Back: POST /session/start (Exercise X)
-    Back->>DB: Stocke T_START
-    Back-->>User: OK (Ack)
-
-    Note over User: ... L'effort (Pousse la fonte) ...
-
-    User->>Back: POST /session/stop
-    Note right of User: Payload: T_END +<br/>Poids: 80kg + Reps: 10
-    
-    Back->>DB: Récupère T_START & Type Machine
-
-    rect rgb(255, 250, 240)
-        note right of Back: Sync & Best Match
-        Back->>Sensor: GET /reps?from=T_START&to=T_END
-        Sensor-->>Back: Retourne Activité sur Sensor B
-        Back->>Back: Filtre: Sensor B correspond<br/>aux timestamps
-    end
-
-    Back->>DB: INSERT into SetsHistory
-    note right of DB: "Golden Record":<br/>Data User (80kg) +<br/>Data Sensor (Vitesse 0.5m/s)
-
-    Back-->>User: Résumé Série + XP Gagnée
-
-```
+3.  **Run Tests**
+    ```bash
+    uv run pytest
+    ```
